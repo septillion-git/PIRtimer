@@ -262,10 +262,10 @@ void updateLed(){
     if(ledState == LIGHT_PURPLE_BLUE_FLASH){
       if(ledFlash){
         digitalFloat(LedPin, FLOAT);
-        setOverflowInterruptTimer0(false);
+        setOverflowInterruptTimer2(false);
       }
       else{
-        setOverflowInterruptTimer0(true);
+        setOverflowInterruptTimer2(true);
       }
     }
     else if(ledState == PURPLE_FLASH){
@@ -295,10 +295,10 @@ void updateLed(){
         ledState == LIGHT_BLUE)
     {
       ///enable interrupts for software PWM
-      setOverflowInterruptTimer0(true);
+      setOverflowInterruptTimer2(true);
     }
     else{
-      setOverflowInterruptTimer0(false);
+      setOverflowInterruptTimer2(false);
     }
     
     //if it's a flashing mode, turn the flash on directly
@@ -310,7 +310,7 @@ void updateLed(){
   }
 }
 
-void setOverflowInterruptTimer0(bool s){
+void setOverflowInterruptTimer2(bool s){
   if(s){
     TIMSK2 |= _BV(TOIE2);
   }
