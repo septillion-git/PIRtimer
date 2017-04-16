@@ -46,6 +46,12 @@ const unsigned long LightExtendedTime  = 2 * 60 * 60 * 1000UL;
 const unsigned long AuxExtendedTime    = 2 * 60 * 60 * 1000UL;
 #endif
 
+const unsigned int  LedFlashTime  = 500;
+const unsigned long LedPanicTime  = 30      * 1000UL;
+const unsigned long LedWaringTime = 5  * 60 * 1000UL;
+
+
+
 /****************************************************************
 * Global variables
 ****************************************************************/
@@ -57,8 +63,33 @@ byte state = ALL_OFF; //!< State of the llight, state_t for easy access
 unsigned long lastMovementMillis; //!< Last kick to the timer
 bool extend = false;
 
+enum ledState_t{LED_OFF, 
+                PURPLE, LIGHT_PURPLE, PURPLE_FLASH, LIGHT_PURPLE_BLUE_FLASH,
+                BLUE, LIGHT_BLUE};
+volatile byte ledState = LED_OFF;
+volatile bool ledFlash = true;
+unsigned long ledMillis;
+
+unsigned long tempMillis;
+
+enum digitalFloat_t{FLOAT = 2};
+
 ISR(TIMER2_OVF_vect){
-  digitalToggle(13);
+  static byte pwmState = true;
+
+  pwmState = !pwmState;
+  
+  if(pwmState){
+    if(ledState == LIGHT_BLUE){
+      digitalFloat(LedPin, FLOAT);
+    }
+    else{
+      digitalFloat(LedPin, HIGH);
+    }
+  }
+  else{
+    digitalFloat(LedPin, LOW);
+  }
 }
 
 void setup() {
@@ -67,7 +98,6 @@ void setup() {
 
   TCCR2A = (TCCR2A & 0b11111100) | 0b00;
   TCCR2B = (TCCR2B & 0b11111000) | 0b110;
-  TIMSK2 |= _BV(TOIE2);
 
   DPRINT(F("TCCR2A: 0b"));
   DPRINTLN(TCCR2A, BIN);
@@ -75,7 +105,6 @@ void setup() {
   DPRINTLN(TCCR2B, BIN);
   DPRINT(F("TIMSK2: 0b"));
   DPRINTLN(TIMSK2, BIN);
-  pinMode(13, OUTPUT);
   
   //Setup the output
   for(byte i = 0; i < sizeof(OutputPins); i++){
@@ -104,9 +133,21 @@ void loop() {
   
   // Acts on the light switch (and modeButton on it)
   checkLightSwitch();
+
+  updateLed();
   
   //Sets the ouputs according to the state
   updateOutputs();
+
+  if(millis() - tempMillis > 4000){
+    tempMillis = millis();
+    ledState++;;
+    if(ledState >= 7){
+      ledState = 0;
+    }
+    DPRINT(F("LedState: "));
+    DPRINTLN(ledState);
+  }
 }
 
 void updateInput(){
@@ -210,3 +251,71 @@ void checkTimer(){
 inline void digitalToggle(byte p){
   digitalWrite(p, !digitalRead(p));
 }
+
+void updateLed(){
+  static byte ledStateSet = -1;
+  //Set flash flag if necessary
+  if(millis() - ledMillis >= LedFlashTime){
+    ledMillis = millis();
+    ledFlash = !ledFlash;
+
+    if(ledState == LIGHT_PURPLE_BLUE_FLASH){
+      if(ledFlash){
+        digitalFloat(LedPin, FLOAT);
+        setOverflowInterruptTimer0(false);
+      }
+      else{
+        setOverflowInterruptTimer0(true);
+      }
+    }
+    else if(ledState == PURPLE_FLASH){
+      digitalFloat(LedPin, ledFlash);
+    }
+  }
+
+  if(ledStateSet != ledState){
+    ledStateSet = ledState;
+
+    //select base color
+    if(ledState == LED_OFF){
+      digitalFloat(LedPin, LOW);
+    }
+    else if(ledState >= PURPLE &&
+            ledState <= LIGHT_PURPLE_BLUE_FLASH)
+    {
+      digitalFloat(LedPin, HIGH);
+    }
+    else{
+      digitalFloat(LedPin, FLOAT);
+    }
+
+    //light?
+    if( ledState == LIGHT_PURPLE ||
+        ledState == LIGHT_PURPLE_BLUE_FLASH ||
+        ledState == LIGHT_BLUE)
+    {
+      ///enable interrupts for software PWM
+      setOverflowInterruptTimer0(true);
+    }
+    else{
+      setOverflowInterruptTimer0(false);
+    }
+    
+    //if it's a flashing mode, turn the flash on directly
+    if( ledState == PURPLE_FLASH ||
+        ledState == LIGHT_PURPLE_BLUE_FLASH)
+    {
+      ledFlash = true;
+    }
+  }
+}
+
+void setOverflowInterruptTimer0(bool s){
+  if(s){
+    TIMSK2 |= _BV(TOIE2);
+  }
+  else{
+    TIMSK2 &= !_BV(TOIE2);
+  }
+}
+
