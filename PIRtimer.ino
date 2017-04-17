@@ -26,31 +26,34 @@ enum output_t {LIGHT, AUX};
 /****************************************************************
 * Timing settings
 ****************************************************************/
-#ifndef DEBUG_TIME
-const unsigned long LightTime    = 15  * 60 * 1000UL;
-const unsigned long AuxTime      = 15  * 60 * 1000UL;
-const unsigned long ReviveTime   = 1   * 60 * 1000UL;
-const unsigned long WarningTime  = 3   * 60 * 1000UL;
-const unsigned long PanicTime    = 1   * 60 * 1000UL;
+#ifndef DEBUG_TIME //normal operation
+//!Time to keep the light on after last movement (in ms), [0] = normal, [1]= extend
+const unsigned long LightTime[]  ={15 * 60 * 1000UL,
+                                   2  * 60 * 60 * 1000UL};
+//!Time to keep the aux on after last movement (in ms), [0] = normal, [1]= extend
+const unsigned long AuxTime[]    ={15 * 60 * 1000UL,
+                                   2  * 60 * 60 * 1000UL};
+const unsigned long ReviveTime   = 1  * 60 * 1000UL; //!< How long wait in revive mode? (in ms)
+//!Led flash rate (if in flash)
+const unsigned int  LedFlashTime  = 200;
+//!Time befor time ends to indicate time is running out
+const unsigned long WarningTime    = 5  * 60 * 1000UL;
+//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime
+const unsigned long PanicTime     = 30      * 1000UL;
 
-const unsigned long LightExtendedTime  = 2 * 60 * 60 * 1000UL;
-const unsigned long AuxExtendedTime    = 2 * 60 * 60 * 1000UL;
-#else
-const unsigned long LightTime    = 30 *      1000UL;
-const unsigned long AuxTime      = 30 *      1000UL;
-const unsigned long ReviveTime   = 10 *      1000UL;
-const unsigned long WarningTime  = 15 *      1000UL;
-const unsigned long PanicTime    = 5  *      1000UL;
-
-const unsigned long LightExtendedTime  = 2 * 60 * 60 * 1000UL;
-const unsigned long AuxExtendedTime    = 2 * 60 * 60 * 1000UL;
+#else //shorter for debuging
+const unsigned long LightTime[]   ={20 *      1000UL,
+                                    60 *      1000UL};
+const unsigned long AuxTime[]     ={20 *      1000UL,
+                                    60 *      1000UL};
+const unsigned long ReviveTime    = 5  *      1000UL;
+//!Led flash rate (if in flash) (in ms)
+const unsigned int  LedFlashTime  = 100;
+//!Time befor time ends to indicate time is running out
+const unsigned long WarningTime    = 10 *      1000UL;
+//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime
+const unsigned long PanicTime     = 5  *      1000UL;
 #endif
-
-const unsigned int  LedFlashTime  = 500;
-const unsigned long LedPanicTime  = 30      * 1000UL;
-const unsigned long LedWaringTime = 5  * 60 * 1000UL;
-
-
 
 /****************************************************************
 * Global variables
@@ -61,7 +64,7 @@ enum state_t{ALL_OFF, ALL_ON, REVIVE, AUX_ONLY};
 byte state = ALL_OFF; //!< State of the llight, state_t for easy access
 
 unsigned long lastMovementMillis; //!< Last kick to the timer
-bool extend = false;
+bool extend = false; //!<Extend mode enabled?
 
 enum ledState_t{LED_OFF, 
                 PURPLE, LIGHT_PURPLE, PURPLE_FLASH, LIGHT_PURPLE_BLUE_FLASH,
@@ -134,20 +137,12 @@ void loop() {
   // Acts on the light switch (and modeButton on it)
   checkLightSwitch();
 
+  checkLed();
+  
   updateLed();
   
   //Sets the ouputs according to the state
   updateOutputs();
-
-  if(millis() - tempMillis > 4000){
-    tempMillis = millis();
-    ledState++;;
-    if(ledState >= 7){
-      ledState = 0;
-    }
-    DPRINT(F("LedState: "));
-    DPRINTLN(ledState);
-  }
 }
 
 void updateInput(){
@@ -172,6 +167,7 @@ void checkLightSwitch(){
       state = AUX_ONLY;
       if(!modeButton.read()){
         extend = true;
+        DPRINTLN(F("Extend on!"));
       }
     }
     else{
@@ -179,6 +175,7 @@ void checkLightSwitch(){
       kickTimer();
       if(!modeButton.read()){
         extend = false;
+        DPRINTLN(F("Extend off!"));
       }
     }
     DPRINT(F("New state: "));
@@ -218,6 +215,9 @@ void digitalFloat(byte pin, byte mode){
 }
 
 void kickTimer(){
+  #if defined(DEBUG_SKETCH)
+  if(millis() - lastMovementMillis >= 1000){
+  #endif
   lastMovementMillis = millis();
 
   if(state == REVIVE){
@@ -225,22 +225,25 @@ void kickTimer(){
   }
   DPRINT(F("Timer kicked! "));
   DPRINTLN(lastMovementMillis);
+  #if defined(DEBUG_SKETCH)
+  }
+  #endif
 }
 
 void checkTimer(){
   const unsigned long MillisNow = millis();
-
-  if(state == ALL_ON && MillisNow - lastMovementMillis >= LightTime){
+  
+  if(state == ALL_ON && MillisNow - lastMovementMillis >= LightTime[extend]){
     state = REVIVE;
     DPRINT(F("Light time, new state: "));
     DPRINTLN(state);
   }
-  else if(state == REVIVE && MillisNow - lastMovementMillis >= (LightTime + ReviveTime)){
+  else if(state == REVIVE && MillisNow - lastMovementMillis >= (LightTime[extend] + ReviveTime)){
     state = AUX_ONLY;
     DPRINT(F("Revive time, new state: "));
     DPRINTLN(state);
   }
-  else if(state == AUX_ONLY && MillisNow - lastMovementMillis >= AuxTime){
+  else if(state == AUX_ONLY && MillisNow - lastMovementMillis >= AuxTime[extend]){
     state = ALL_OFF;
     extend = false;
     DPRINT(F("Aux time, new state: "));
@@ -289,7 +292,7 @@ void updateLed(){
       digitalFloat(LedPin, FLOAT);
     }
 
-    //light?
+    //light state?
     if( ledState == LIGHT_PURPLE ||
         ledState == LIGHT_PURPLE_BLUE_FLASH ||
         ledState == LIGHT_BLUE)
@@ -306,7 +309,47 @@ void updateLed(){
         ledState == LIGHT_PURPLE_BLUE_FLASH)
     {
       ledFlash = true;
+      ledMillis = millis();
     }
+  }
+}
+
+void checkLed(){
+  const unsigned long MillisNow = millis();
+  byte newLedState;
+
+  if(state == ALL_OFF){
+    if(extend){
+      newLedState = LIGHT_PURPLE;
+    }
+    else{
+      newLedState = LED_OFF;
+    }
+  }
+  else if( MillisNow - lastMovementMillis >= (LightTime[extend] - PanicTime) ||
+      MillisNow - lastMovementMillis >= (AuxTime[extend] - PanicTime) )
+  {
+    newLedState = PURPLE_FLASH;
+  }
+  else if( MillisNow - lastMovementMillis >= (LightTime[extend] - WarningTime) ||
+      MillisNow - lastMovementMillis >= (AuxTime[extend] - WarningTime) )
+  {
+    newLedState = PURPLE;
+  }
+  else if(extend){
+    newLedState = LIGHT_PURPLE;
+  }
+  else if(state == AUX_ONLY){
+    newLedState = LIGHT_BLUE;
+  }
+  else{
+    newLedState = LED_OFF;
+  }
+
+  if(ledState != newLedState){
+    ledState = newLedState;
+    DPRINT(F("Led state changed! New: "));
+    DPRINTLN(ledState);
   }
 }
 
@@ -318,4 +361,3 @@ void setOverflowInterruptTimer2(bool s){
     TIMSK2 &= !_BV(TOIE2);
   }
 }
-
