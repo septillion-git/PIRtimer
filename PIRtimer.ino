@@ -96,7 +96,8 @@ ISR(TIMER2_OVF_vect){
 }
 
 void setup() {
-  Serial.begin(115200);
+  //Start Serial debuging
+  DBEGIN(115200);
   DPRINTLN(F("Program start"));
 
   TCCR2A = (TCCR2A & 0b11111100) | 0b00;
