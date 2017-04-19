@@ -84,14 +84,14 @@ ISR(TIMER2_OVF_vect){
   
   if(pwmState){
     if(ledState == LIGHT_BLUE){
-      digitalFloat(LedPin, FLOAT);
+      digital3State(LedPin, FLOAT);
     }
     else{
-      digitalFloat(LedPin, HIGH);
+      digital3State(LedPin, HIGH);
     }
   }
   else{
-    digitalFloat(LedPin, LOW);
+    digital3State(LedPin, LOW);
   }
 }
 
@@ -198,7 +198,6 @@ void updateOutputs(){
   }
 }
 
-void digitalFloat(byte pin, byte mode){
   switch(mode){
     case 0:
       digitalWrite(pin, LOW);
@@ -264,7 +263,7 @@ void updateLed(){
 
     if(ledState == LIGHT_PURPLE_BLUE_FLASH){
       if(ledFlash){
-        digitalFloat(LedPin, FLOAT);
+        digital3State(LedPin, FLOAT);
         setOverflowInterruptTimer2(false);
       }
       else{
@@ -272,7 +271,7 @@ void updateLed(){
       }
     }
     else if(ledState == PURPLE_FLASH){
-      digitalFloat(LedPin, ledFlash);
+      digital3State(LedPin, ledFlash);
     }
   }
 
@@ -281,15 +280,15 @@ void updateLed(){
 
     //select base color
     if(ledState == LED_OFF){
-      digitalFloat(LedPin, LOW);
+      digital3State(LedPin, LOW);
     }
     else if(ledState >= PURPLE &&
             ledState <= LIGHT_PURPLE_BLUE_FLASH)
     {
-      digitalFloat(LedPin, HIGH);
+      digital3State(LedPin, HIGH);
     }
     else{
-      digitalFloat(LedPin, FLOAT);
+      digital3State(LedPin, FLOAT);
     }
 
     //light state?
