@@ -1,4 +1,9 @@
-
+/**
+ * @file
+ * @brief Little device to turn off the light (and AV) when no movment is detected. 
+ * Turn on like normal (light switch) 
+ */
+ 
 /****************************************************************
 * Libraries used
 ****************************************************************/
@@ -8,19 +13,21 @@
 * Debug library + enable/disable
 ****************************************************************/
 #define DEBUG_SKETCH
-#define DEBUG_TIME
+//#define DEBUG_TIME
+//#define DEBUG_KICK
 #include <DebugLib.h>
 
 /****************************************************************
 * Pin declarations
 ****************************************************************/
-const byte OutputPins[2] = {3, 2};
-const byte LightSwitchPin = 5; //10
-const byte ModeButtonPin = 12;
-const byte PirPin = A2;
-const byte LedPin = A3;
-const byte ModeSelectorPin = 5;
+const byte OutputPins[2] = {3, 2}; //!<Output pins
+const byte LightSwitchPin = 10; //!<Light switch pin
+const byte ModeButtonPin = 12; //!<Mode button pin
+const byte PirPin = A2; //!<PIR pin
+const byte LedPin = A3; //!< Led pin
+const byte ModeSelectorPin = 5; //!< Mode selector pin. Currently **not** used
 
+//!Enum for easy access of OutputPins
 enum output_t {LIGHT, AUX};
 
 /****************************************************************
@@ -33,56 +40,81 @@ const unsigned long LightTime[]  ={15 * 60 * 1000UL,
 //!Time to keep the aux on after last movement (in ms), [0] = normal, [1]= extend
 const unsigned long AuxTime[]    ={15 * 60 * 1000UL,
                                    2  * 60 * 60 * 1000UL};
-const unsigned long ReviveTime   = 1  * 60 * 1000UL; //!< How long wait in revive mode? (in ms)
-//!Led flash rate (if in flash)
+//! How long wait in revive mode? (in ms)
+const unsigned long ReviveTime   = 1  * 60 * 1000UL;
+//!Led flash rate (if in flash) (in ms)
 const unsigned int  LedFlashTime  = 200;
-//!Time befor time ends to indicate time is running out
+//!Time befor time ends to indicate time is running out (in ms)
 const unsigned long WarningTime    = 5  * 60 * 1000UL;
-//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime
-const unsigned long PanicTime     = 30      * 1000UL;
+//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime (in ms)
+const unsigned long PanicTime     = 60       * 1000UL;
 
 #else //shorter for debuging
+//!Time to keep the light on after last movement (in ms), [0] = normal, [1]= extend
 const unsigned long LightTime[]   ={20 *      1000UL,
                                     60 *      1000UL};
+//!Time to keep the aux on after last movement (in ms), [0] = normal, [1]= extend
 const unsigned long AuxTime[]     ={20 *      1000UL,
                                     60 *      1000UL};
+//! How long wait in revive mode? (in ms)
 const unsigned long ReviveTime    = 5  *      1000UL;
 //!Led flash rate (if in flash) (in ms)
 const unsigned int  LedFlashTime  = 100;
-//!Time befor time ends to indicate time is running out
+//!Time befor time ends to indicate time is running out (in ms)
 const unsigned long WarningTime    = 10 *      1000UL;
-//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime
+//!Time befor time ends to indicate last change to kick the timer (should be < LedWarningTime (in ms)
 const unsigned long PanicTime     = 5  *      1000UL;
 #endif
+
+const unsigned int LongPressTime = 5000; //!< Time to keep the button pressed to count as a long press
 
 /****************************************************************
 * Global variables
 ****************************************************************/
+//@{
+//! Bounce objects for the inputs
 Bounce lightSwitch, modeButton, modeSelector, pir;
+//@}
 
+//! Enum to make the states easy to read
 enum state_t{ALL_OFF, ALL_ON, REVIVE, AUX_ONLY};
 byte state = ALL_OFF; //!< State of the llight, state_t for easy access
 
 unsigned long lastMovementMillis; //!< Last kick to the timer
 bool extend = false; //!<Extend mode enabled?
 
+//!Enum to make the led states easy to read
 enum ledState_t{LED_OFF, 
                 PURPLE, LIGHT_PURPLE, PURPLE_FLASH, LIGHT_PURPLE_BLUE_FLASH,
                 BLUE, LIGHT_BLUE};
+//!Keeps track of the led state
 volatile byte ledState = LED_OFF;
-volatile bool ledFlash = true;
+//!Flash state of the led
+bool ledFlash = true;
+
+//!To keep track of the led flash time
 unsigned long ledMillis;
 
-unsigned long tempMillis;
+//! Enum to easy set the floating state of digital3State()
+enum digital3State_t{FLOAT = 2};
 
-enum digitalFloat_t{FLOAT = 2};
-
+/****************************************************************
+* ISR functions
+****************************************************************/
+/**
+ * @brief Timer 2 overflow interrupt.
+ * 
+ * Used to do software PWM
+ */
 ISR(TIMER2_OVF_vect){
-  static byte pwmState = true;
+  static byte pwmState = true; //To remember last state set
 
+  //flip state
   pwmState = !pwmState;
-  
+
+  //act accordingly
   if(pwmState){
+    //Float for blue, high for purple on times
     if(ledState == LIGHT_BLUE){
       digital3State(LedPin, FLOAT);
     }
@@ -95,14 +127,23 @@ ISR(TIMER2_OVF_vect){
   }
 }
 
+/****************************************************************
+* Setup and loop
+****************************************************************/
+
+/**
+ * @brief Default Arduino setup()
+ */
 void setup() {
   //Start Serial debuging
   DBEGIN(115200);
   DPRINTLN(F("Program start"));
-
+  
+  //Setup Timer 2. Normal mode and Clk/256 for a 244Hz interrupt
   TCCR2A = (TCCR2A & 0b11111100) | 0b00;
   TCCR2B = (TCCR2B & 0b11111000) | 0b110;
-
+  
+  //print Timer 2 settings to check
   DPRINT(F("TCCR2A: 0b"));
   DPRINTLN(TCCR2A, BIN);
   DPRINT(F("TCCR2B: 0b"));
@@ -132,20 +173,30 @@ void loop() {
   if(pir.read()){
     kickTimer();
   }
-
+  
+  //Check timer to see if state need changing
   checkTimer();
   
   // Acts on the light switch (and modeButton on it)
   checkLightSwitch();
-
-  checkLed();
   
+  //Check if the ledState needs to change
+  checkLed();
+
+  //Update led to reflect ledState
   updateLed();
   
   //Sets the ouputs according to the state
   updateOutputs();
 }
 
+/****************************************************************
+* Input functions
+****************************************************************/
+
+/**
+ * @Brief Updates all inputs
+ */
 void updateInput(){
   lightSwitch.update();
   modeButton.update();
@@ -153,27 +204,56 @@ void updateInput(){
   pir.update();
 }
 
+/**
+ * @brief if the given Bounce object changed state
+ * 
+ * @param [in] in Bounce object to check
+ * 
+ * @return **True** if it fell **or** rose, **false** otherwise
+ * 
+ */
 bool bounceChanged(Bounce &in){
   return in.fell() || in.rose();
 }
 
+/**
+ * @brief checks the whole light, including mode button
+ * 
+ * Changes the state accordingly to the actions of the light switch and mode button
+ */
 void checkLightSwitch(){
+  static unsigned long modeButtonMillis = 0;
+  
+  //Act on swithcing the light switch on or off
   if(bounceChanged(lightSwitch)){
+    //Debug printing
     DPRINT(F("Light switch: "));
     DPRINTLN(lightSwitch.read());
-    
     DPRINT(F("Old state: "));
     DPRINTLN(state);
+
+    //If the light is on, turn it off and go to AUX_ONLY
     if(state == ALL_ON){
       state = AUX_ONLY;
+      //And extend the time if the mode button was pressed at that time
       if(!modeButton.read()){
         extend = true;
         DPRINTLN(F("Extend on!"));
       }
+
+      //save modeButton time to not make it timeout directly.
+      modeButtonMillis = millis();
     }
+    //In every other state, turn the light on
     else{
       state = ALL_ON;
+
+      //kick the timer because there was action
+      //PIR may only see movement after switching (because of placement)
+      //Prevents the unit from turning off directly
       kickTimer();
+
+      //And reset extend if mode button was pressed at that time
       if(!modeButton.read()){
         extend = false;
         DPRINTLN(F("Extend off!"));
@@ -211,6 +291,13 @@ void checkLightSwitch(){
   }
 }
 
+/****************************************************************
+* Output functions
+****************************************************************/
+
+/**
+ * @brief set outputs according to state
+ */
 void updateOutputs(){
   if(state == ALL_ON){
     digitalWrite(OutputPins[LIGHT], LOW);
@@ -226,6 +313,15 @@ void updateOutputs(){
   }
 }
 
+/**
+ * @brief 3-state write functions
+ * 
+ * Makes it possible to switch between the 3-state options (LOW, HIGH, FLoAT) of a pin
+ * 
+ * @param [in] pin Pin to set
+ * @param [in] mode Mode to set the pin at
+ */
+void digital3State(byte pin, byte mode){
   switch(mode){
     case 0:
       digitalWrite(pin, LOW);
@@ -241,46 +337,15 @@ void updateOutputs(){
   }
 }
 
-void kickTimer(){
-  #if defined(DEBUG_SKETCH)
-  if(millis() - lastMovementMillis >= 1000){
-  #endif
-  lastMovementMillis = millis();
-
-  if(state == REVIVE){
-    state = ALL_ON;
-  }
-  DPRINT(F("Timer kicked! "));
-  DPRINTLN(lastMovementMillis);
-  #if defined(DEBUG_SKETCH)
-  }
-  #endif
-}
-
-void checkTimer(){
-  const unsigned long MillisNow = millis();
-  
-  if(state == ALL_ON && MillisNow - lastMovementMillis >= LightTime[extend]){
-    state = REVIVE;
-    DPRINT(F("Light time, new state: "));
-    DPRINTLN(state);
-  }
-  else if(state == REVIVE && MillisNow - lastMovementMillis >= (LightTime[extend] + ReviveTime)){
-    state = AUX_ONLY;
-    DPRINT(F("Revive time, new state: "));
-    DPRINTLN(state);
-  }
-  else if(state == AUX_ONLY && MillisNow - lastMovementMillis >= AuxTime[extend]){
-    state = ALL_OFF;
-    extend = false;
-    DPRINT(F("Aux time, new state: "));
-    DPRINTLN(state);
-  }
-}
-
+/**
+ * @Brief Toggles the pin
+ * 
+ * @Note Like digitalWrite(), be sure the mode is set correct.
+ */
 inline void digitalToggle(byte p){
   digitalWrite(p, !digitalRead(p));
 }
+
 
 void updateLed(){
   static byte ledStateSet = -1;
@@ -338,6 +403,51 @@ void updateLed(){
       ledFlash = true;
       ledMillis = millis();
     }
+  }
+}
+
+/****************************************************************
+* Timer functions
+****************************************************************/
+
+void kickTimer(){
+  #if defined(DEBUG_KICK)
+  if(millis() - lastMovementMillis >= 1000){
+  #endif
+  lastMovementMillis = millis();
+
+  if(state == REVIVE){
+    state = ALL_ON;
+  }
+  DPRINT(F("Timer kicked! "));
+  DPRINTLN(lastMovementMillis);
+  #if defined(DEBUG_KICK)
+  }
+  #endif
+}
+
+void checkTimer(){
+  const unsigned long MillisNow = millis();
+  
+  if(state == ALL_ON && MillisNow - lastMovementMillis >= LightTime[extend]){
+    state = REVIVE;
+    DPRINT(F("Light time, new state: "));
+    DPRINTLN(state);
+  }
+  else if(state == REVIVE && MillisNow - lastMovementMillis >= (LightTime[extend] + ReviveTime)){
+    state = AUX_ONLY;
+    DPRINT(F("Revive time, new state: "));
+    DPRINTLN(state);
+  }
+  else if(state == AUX_ONLY && MillisNow - lastMovementMillis >= AuxTime[extend]){
+    state = ALL_OFF;
+    DPRINT(F("Aux time, new state: "));
+    DPRINTLN(state);
+  }
+  
+  //ALL_OFF will always reset extend mode
+  if(state == ALL_OFF){
+    extend = false;
   }
 }
 
