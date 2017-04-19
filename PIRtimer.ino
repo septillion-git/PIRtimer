@@ -137,18 +137,18 @@ ISR(TIMER2_OVF_vect){
 void setup() {
   //Start Serial debuging
   DBEGIN(115200);
-  DPRINTLN(F("Program start"));
+  DPRINTFLN("Program start");
   
   //Setup Timer 2. Normal mode and Clk/256 for a 244Hz interrupt
   TCCR2A = (TCCR2A & 0b11111100) | 0b00;
   TCCR2B = (TCCR2B & 0b11111000) | 0b110;
   
   //print Timer 2 settings to check
-  DPRINT(F("TCCR2A: 0b"));
+  DPRINTF("TCCR2A: 0b");
   DPRINTLN(TCCR2A, BIN);
-  DPRINT(F("TCCR2B: 0b"));
+  DPRINTF("TCCR2B: 0b");
   DPRINTLN(TCCR2B, BIN);
-  DPRINT(F("TIMSK2: 0b"));
+  DPRINTF("TIMSK2: 0b");
   DPRINTLN(TIMSK2, BIN);
   
   //Setup the output
@@ -227,9 +227,9 @@ void checkLightSwitch(){
   //Act on swithcing the light switch on or off
   if(bounceChanged(lightSwitch)){
     //Debug printing
-    DPRINT(F("Light switch: "));
+    DPRINTF("Light switch: ");
     DPRINTLN(lightSwitch.read());
-    DPRINT(F("Old state: "));
+    DPRINTF("Old state: ");
     DPRINTLN(state);
 
     //If the light is on, turn it off and go to AUX_ONLY
@@ -238,7 +238,7 @@ void checkLightSwitch(){
       //And extend the time if the mode button was pressed at that time
       if(!modeButton.read()){
         extend = true;
-        DPRINTLN(F("Extend on!"));
+        DPRINTFLN("Extend on!");
       }
 
       //save modeButton time to not make it timeout directly.
@@ -256,10 +256,10 @@ void checkLightSwitch(){
       //And reset extend if mode button was pressed at that time
       if(!modeButton.read()){
         extend = false;
-        DPRINTLN(F("Extend off!"));
+        DPRINTFLN("Extend off!");
       }
     }
-    DPRINT(F("New state: "));
+    DPRINTF("New state: ");
     DPRINTLN(state);
   }
   
@@ -278,6 +278,7 @@ void checkLightSwitch(){
     else{
       modeButtonMillis = 0;
       DPRINTFLN("Reset");
+    }
   }
   //In AUX_ONLY a long press will turn off the AUX
   //modeButtonMillis
@@ -346,14 +347,19 @@ inline void digitalToggle(byte p){
   digitalWrite(p, !digitalRead(p));
 }
 
-
+/**
+ * @brief Updates the state of the status LED to match the situation
+ * 
+ * Changes ledState according to the state, timer and flash
+ */
 void updateLed(){
   static byte ledStateSet = -1;
   //Set flash flag if necessary
   if(millis() - ledMillis >= LedFlashTime){
     ledMillis = millis();
     ledFlash = !ledFlash;
-
+    
+    //Do the flashing
     if(ledState == LIGHT_PURPLE_BLUE_FLASH){
       if(ledFlash){
         digital3State(LedPin, FLOAT);
@@ -367,7 +373,8 @@ void updateLed(){
       digital3State(LedPin, ledFlash);
     }
   }
-
+  
+  //If ledState is different from what is set, set it
   if(ledStateSet != ledState){
     ledStateSet = ledState;
 
@@ -384,7 +391,7 @@ void updateLed(){
       digital3State(LedPin, FLOAT);
     }
 
-    //light state?
+    //light color?
     if( ledState == LIGHT_PURPLE ||
         ledState == LIGHT_PURPLE_BLUE_FLASH ||
         ledState == LIGHT_BLUE)
@@ -410,38 +417,50 @@ void updateLed(){
 * Timer functions
 ****************************************************************/
 
+/**
+ * @brief Kicks the timer to not reset
+ * 
+ * If this function is called the countdown is reset
+ */
 void kickTimer(){
+  //To make is only kick ever second when debugging
+  //Not the pretiest fix...
   #if defined(DEBUG_KICK)
   if(millis() - lastMovementMillis >= 1000){
   #endif
   lastMovementMillis = millis();
-
+  
+  //If we can revive the light we do
   if(state == REVIVE){
     state = ALL_ON;
+    DPRINTFLN("Revived!");
   }
-  DPRINT(F("Timer kicked! "));
+  DPRINTF("Timer kicked! ");
   DPRINTLN(lastMovementMillis);
   #if defined(DEBUG_KICK)
   }
   #endif
 }
 
+/**
+ * @brief Checks the timer and set state accordingly
+ */
 void checkTimer(){
   const unsigned long MillisNow = millis();
   
   if(state == ALL_ON && MillisNow - lastMovementMillis >= LightTime[extend]){
     state = REVIVE;
-    DPRINT(F("Light time, new state: "));
+    DPRINTF("Light time, new state: ");
     DPRINTLN(state);
   }
   else if(state == REVIVE && MillisNow - lastMovementMillis >= (LightTime[extend] + ReviveTime)){
     state = AUX_ONLY;
-    DPRINT(F("Revive time, new state: "));
+    DPRINTF("Revive time, new state: ");
     DPRINTLN(state);
   }
   else if(state == AUX_ONLY && MillisNow - lastMovementMillis >= AuxTime[extend]){
     state = ALL_OFF;
-    DPRINT(F("Aux time, new state: "));
+    DPRINTF("Aux time, new state: ");
     DPRINTLN(state);
   }
   
@@ -451,6 +470,9 @@ void checkTimer(){
   }
 }
 
+/**
+ * @brief Checks timer and set ledSate accordingly
+ */
 void checkLed(){
   const unsigned long MillisNow = millis();
   byte newLedState;
@@ -463,13 +485,13 @@ void checkLed(){
       newLedState = LED_OFF;
     }
   }
-  else if( MillisNow - lastMovementMillis >= (LightTime[extend] - PanicTime) ||
-      MillisNow - lastMovementMillis >= (AuxTime[extend] - PanicTime) )
+  else if(MillisNow - lastMovementMillis >= (LightTime[extend] - PanicTime) ||
+    MillisNow - lastMovementMillis >= (AuxTime[extend] - PanicTime) )
   {
     newLedState = PURPLE_FLASH;
   }
   else if( MillisNow - lastMovementMillis >= (LightTime[extend] - WarningTime) ||
-      MillisNow - lastMovementMillis >= (AuxTime[extend] - WarningTime) )
+    MillisNow - lastMovementMillis >= (AuxTime[extend] - WarningTime) )
   {
     newLedState = PURPLE;
   }
@@ -482,14 +504,20 @@ void checkLed(){
   else{
     newLedState = LED_OFF;
   }
-
+  
+  //To only notify if it's a new state
   if(ledState != newLedState){
     ledState = newLedState;
-    DPRINT(F("Led state changed! New: "));
+    DPRINTF("Led state changed! New: ");
     DPRINTLN(ledState);
   }
 }
 
+/**
+ * @Brief Enables or disables Timer 2 Overflow Interrupt
+ * 
+ * @param [in] s true = enable, false = disable
+ */
 void setOverflowInterruptTimer2(bool s){
   if(s){
     TIMSK2 |= _BV(TOIE2);
