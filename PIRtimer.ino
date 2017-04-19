@@ -182,6 +182,33 @@ void checkLightSwitch(){
     DPRINT(F("New state: "));
     DPRINTLN(state);
   }
+  
+  if(modeButton.fell()){
+    DPRINTF("ModeButton pressed!");
+    if(state == AUX_ONLY){
+      modeButtonMillis = millis();
+      //If pressed exactly at 0, pretend it was 1 :D
+      if(modeButtonMillis == 0){
+        modeButtonMillis = 1;
+      }
+      DPRINTF("Set millis: ");
+      DPRINTLN(modeButtonMillis);
+    }
+    //Set to 0 to make it do nothing
+    else{
+      modeButtonMillis = 0;
+      DPRINTFLN("Reset");
+  }
+  //In AUX_ONLY a long press will turn off the AUX
+  //modeButtonMillis
+  else if(state == AUX_ONLY &&
+    !modeButton.read() &&
+    modeButtonMillis &&
+    millis() - modeButtonMillis >= LongPressTime)
+  {
+    DPRINTFLN("Long modeButton press, all off!");
+    state = ALL_OFF;
+  }
 }
 
 void updateOutputs(){
